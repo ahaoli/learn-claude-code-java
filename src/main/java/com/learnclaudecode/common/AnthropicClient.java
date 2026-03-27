@@ -1,5 +1,6 @@
 package com.learnclaudecode.common;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.learnclaudecode.model.AnthropicResponse;
 
 import java.io.IOException;
@@ -12,6 +13,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * 轻量级 Anthropic Messages API 调用器。
@@ -96,7 +98,7 @@ public class AnthropicClient {
                 throw new IllegalStateException("Anthropic API 调用失败: HTTP " + response.statusCode() + "\n" + response.body());
             }
             // 解析后的结果会交回 AgentRuntime，由它判断本轮是文本回复还是 tool_use。
-            return JsonUtils.fromJson(response.body(), AnthropicResponse.class);
+            return parseResponse(response.body(), useChatCompletions);
         } catch (IOException | InterruptedException e) {
             // 中断时也统一转成业务异常，避免上层每处都重复处理网络细节。
             Thread.currentThread().interrupt();
