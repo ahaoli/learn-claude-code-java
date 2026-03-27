@@ -8,6 +8,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -50,6 +51,9 @@ public class AnthropicClient {
      * @return 模型响应
      */
     public AnthropicResponse createMessage(String system, List<?> messages, List<?> tools, int maxTokens) {
+        String endpoint = config.getBaseUrl().trim();
+        boolean useChatCompletions = endpoint.contains("/chat/completions");
+
         // 请求体字段尽量对齐 Anthropic messages API，便于兼容 Anthropic-compatible 提供方。
         // 这里的 payload 就是一次“大模型推理请求”的完整输入：
         // 1. model: 用哪个模型；
@@ -65,7 +69,7 @@ public class AnthropicClient {
             payload.put("system", system);
         }
         if (tools != null && !tools.isEmpty()) {
-            payload.put("tools", tools);
+            payload.put("tools", useChatCompletions ? normalizeToolsForChatCompletions(tools) : tools);
         }
 
         // Base URL 允许来自 .env，方便接入智谱、OpenRouter 等兼容端点。
@@ -73,7 +77,7 @@ public class AnthropicClient {
         // “上层只关心 Anthropic 风格协议，下层可以替换成任意兼容实现”。
         HttpRequest.Builder builder = HttpRequest.newBuilder()
                 //.uri(URI.create(config.getBaseUrl().replaceAll("/$", "") + "/v1/messages"))
-                .uri(URI.create(config.getBaseUrl()))
+                .uri(URI.create(endpoint))
                 .timeout(Duration.ofSeconds(180))
                 .header("content-type", "application/json")
                // .header("anthropic-version", "2023-06-01")
@@ -98,5 +102,41 @@ public class AnthropicClient {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("Anthropic API 调用失败", e);
         }
+    }
+
+    /**
+     * 将 Anthropic 风格 tools 映射为 chat/completions 所需结构。
+     *
+     * 智谱 OpenAI 风格端点要求：
+     * tools[].type = "function"
+     * tools[].function = {name, description, parameters}
+     */
+    private List<Map<String, Object>> normalizeToolsForChatCompletions(List<?> tools) {
+        List<Map<String, Object>> normalized = new ArrayList<>();
+        for (Object item : tools) {
+            if (!(item instanceof Map<?, ?> raw)) {
+                continue;
+            }
+            Object name = raw.get("name");
+            Object description = raw.get("description");
+            Object schema = raw.get("input_schema");
+
+            Map<String, Object> function = new HashMap<>();
+            if (name != null) {
+                function.put("name", name);
+            }
+            if (description != null) {
+                function.put("description", description);
+            }
+            if (schema instanceof Map<?, ?> schemaMap) {
+                function.put("parameters", schemaMap);
+            }
+
+            Map<String, Object> converted = new HashMap<>();
+            converted.put("type", "function");
+            converted.put("function", function);
+            normalized.add(converted);
+        }
+        return normalized;
     }
 }
