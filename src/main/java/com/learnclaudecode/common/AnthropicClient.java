@@ -72,14 +72,16 @@ public class AnthropicClient {
         // 这也是 Claude Code 类项目很常见的设计：
         // “上层只关心 Anthropic 风格协议，下层可以替换成任意兼容实现”。
         HttpRequest.Builder builder = HttpRequest.newBuilder()
-                .uri(URI.create(config.getBaseUrl().replaceAll("/$", "") + "/v1/messages"))
+                //.uri(URI.create(config.getBaseUrl().replaceAll("/$", "") + "/v1/messages"))
+                .uri(URI.create(config.getBaseUrl()))
                 .timeout(Duration.ofSeconds(180))
                 .header("content-type", "application/json")
-                .header("anthropic-version", "2023-06-01")
+               // .header("anthropic-version", "2023-06-01")
                 .POST(HttpRequest.BodyPublishers.ofString(JsonUtils.toJson(payload)));
 
         if (!config.getApiKey().isBlank()) {
-            builder.header("x-api-key", config.getApiKey());
+            //builder.header("x-api-key", config.getApiKey());
+            builder.header("Authorization", "Bearer " + config.getApiKey());
         }
 
         try {
