@@ -1,5 +1,6 @@
 package com.learnclaudecode.common;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.learnclaudecode.model.AnthropicResponse;
 
 import java.io.IOException;
@@ -8,9 +9,11 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * 轻量级 Anthropic Messages API 调用器。
@@ -50,6 +53,9 @@ public class AnthropicClient {
      * @return 模型响应
      */
     public AnthropicResponse createMessage(String system, List<?> messages, List<?> tools, int maxTokens) {
+        String endpoint = config.getBaseUrl().trim();
+        boolean useChatCompletions = endpoint.contains("/chat/completions");
+
         // 请求体字段尽量对齐 Anthropic messages API，便于兼容 Anthropic-compatible 提供方。
         // 这里的 payload 就是一次“大模型推理请求”的完整输入：
         // 1. model: 用哪个模型；
@@ -65,7 +71,7 @@ public class AnthropicClient {
             payload.put("system", system);
         }
         if (tools != null && !tools.isEmpty()) {
-            payload.put("tools", tools);
+            payload.put("tools", useChatCompletions ? normalizeToolsForChatCompletions(tools) : tools);
         }
 
         // Base URL 允许来自 .env，方便接入智谱、OpenRouter 等兼容端点。
@@ -73,7 +79,7 @@ public class AnthropicClient {
         // “上层只关心 Anthropic 风格协议，下层可以替换成任意兼容实现”。
         HttpRequest.Builder builder = HttpRequest.newBuilder()
                 //.uri(URI.create(config.getBaseUrl().replaceAll("/$", "") + "/v1/messages"))
-                .uri(URI.create(config.getBaseUrl()))
+                .uri(URI.create(endpoint))
                 .timeout(Duration.ofSeconds(180))
                 .header("content-type", "application/json")
                // .header("anthropic-version", "2023-06-01")
@@ -92,11 +98,120 @@ public class AnthropicClient {
                 throw new IllegalStateException("Anthropic API 调用失败: HTTP " + response.statusCode() + "\n" + response.body());
             }
             // 解析后的结果会交回 AgentRuntime，由它判断本轮是文本回复还是 tool_use。
-            return JsonUtils.fromJson(response.body(), AnthropicResponse.class);
+            return parseResponse(response.body(), useChatCompletions);
         } catch (IOException | InterruptedException e) {
             // 中断时也统一转成业务异常，避免上层每处都重复处理网络细节。
             Thread.currentThread().interrupt();
             throw new IllegalStateException("Anthropic API 调用失败", e);
         }
+    }
+
+    /**
+     * 将 Anthropic 风格 tools 映射为 chat/completions 所需结构。
+     *
+     * 智谱 OpenAI 风格端点要求：
+     * tools[].type = "function"
+     * tools[].function = {name, description, parameters}
+     */
+    private List<Map<String, Object>> normalizeToolsForChatCompletions(List<?> tools) {
+        List<Map<String, Object>> normalized = new ArrayList<>();
+        for (Object item : tools) {
+            if (!(item instanceof Map<?, ?> raw)) {
+                continue;
+            }
+            Object name = raw.get("name");
+            Object description = raw.get("description");
+            Object schema = raw.get("input_schema");
+
+            Map<String, Object> function = new HashMap<>();
+            if (name != null) {
+                function.put("name", name);
+            }
+            if (description != null) {
+                function.put("description", description);
+            }
+            if (schema instanceof Map<?, ?> schemaMap) {
+                function.put("parameters", schemaMap);
+            }
+
+            Map<String, Object> converted = new HashMap<>();
+            converted.put("type", "function");
+            converted.put("function", function);
+            normalized.add(converted);
+        }
+        return normalized;
+    }
+
+    private AnthropicResponse parseResponse(String responseBody, boolean useChatCompletions) {
+        if (!useChatCompletions) {
+            return JsonUtils.fromJson(responseBody, AnthropicResponse.class);
+        }
+        return convertChatCompletionToAnthropic(responseBody);
+    }
+
+    @SuppressWarnings("unchecked")
+    private AnthropicResponse convertChatCompletionToAnthropic(String responseBody) {
+        Map<String, Object> root = JsonUtils.fromJson(responseBody, new TypeReference<Map<String, Object>>() {});
+        List<Map<String, Object>> choices = (List<Map<String, Object>>) root.getOrDefault("choices", List.of());
+        if (choices.isEmpty()) {
+            return new AnthropicResponse("end_turn", List.of());
+        }
+        Map<String, Object> firstChoice = choices.get(0);
+        String finishReason = String.valueOf(firstChoice.getOrDefault("finish_reason", "stop"));
+        Map<String, Object> message = (Map<String, Object>) firstChoice.getOrDefault("message", Map.of());
+
+        List<Map<String, Object>> content = new ArrayList<>();
+        Object text = message.get("content");
+        if (text instanceof String textContent && !textContent.isBlank()) {
+            content.add(Map.of("type", "text", "text", textContent));
+        }
+
+        List<Map<String, Object>> toolCalls = (List<Map<String, Object>>) message.getOrDefault("tool_calls", List.of());
+        for (Map<String, Object> toolCall : toolCalls) {
+            Map<String, Object> function = (Map<String, Object>) toolCall.getOrDefault("function", Map.of());
+            String name = String.valueOf(function.getOrDefault("name", ""));
+            String id = String.valueOf(toolCall.getOrDefault("id", "call_" + UUID.randomUUID()));
+            Object args = function.get("arguments");
+            Map<String, Object> input = parseFunctionArguments(args);
+            Map<String, Object> block = new HashMap<>();
+            block.put("type", "tool_use");
+            block.put("id", id);
+            block.put("name", name);
+            block.put("input", input);
+            content.add(block);
+        }
+
+        String stopReason = toolCalls.isEmpty() ? mapFinishReason(finishReason) : "tool_use";
+        return new AnthropicResponse(stopReason, content);
+    }
+
+    private String mapFinishReason(String finishReason) {
+        return switch (finishReason) {
+            case "tool_calls" -> "tool_use";
+            case "length" -> "max_tokens";
+            default -> "end_turn";
+        };
+    }
+
+    private Map<String, Object> parseFunctionArguments(Object args) {
+        if (args instanceof Map<?, ?> mapArgs) {
+            Map<String, Object> result = new HashMap<>();
+            for (Map.Entry<?, ?> entry : mapArgs.entrySet()) {
+                result.put(String.valueOf(entry.getKey()), entry.getValue());
+            }
+            return result;
+        }
+        if (args instanceof String argString) {
+            String trimmed = argString.trim();
+            if (trimmed.isEmpty()) {
+                return Map.of();
+            }
+            try {
+                return JsonUtils.fromJson(trimmed, new TypeReference<Map<String, Object>>() {});
+            } catch (IllegalStateException ignored) {
+                return Map.of("_raw", trimmed);
+            }
+        }
+        return Map.of();
     }
 }
