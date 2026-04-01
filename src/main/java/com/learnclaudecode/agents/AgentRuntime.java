@@ -90,7 +90,7 @@ public class AgentRuntime {
     }
 
     /**
-     * 启动 REPL 交互循环。
+     * 启动 REPL 交互循环。交互式编程环境 Read-Eval（evaluate）-Print Loop
      *
      * @param config 当前阶段配置
      */

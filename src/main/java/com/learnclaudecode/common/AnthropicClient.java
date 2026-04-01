@@ -66,6 +66,7 @@ public class AnthropicClient {
         payload.put("model", config.getModelId());
         payload.put("max_tokens", maxTokens);
         payload.put("messages", normalizeMessagesForChatCompletions(messages));
+        System.out.println("\u001B[31m" + payload.get("messages") + "\u001B[0m");
         if (system != null && !system.isBlank()) {
             payload.put("system", system);
         }
