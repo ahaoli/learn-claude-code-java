@@ -66,30 +66,41 @@ public class CompressionService {
      */
     public void microCompact(List<ChatMessage> messages) {
         // 微压缩只清理较老的 tool_result 大文本，尽量保留最近几轮完整上下文。
-        List<Map<String, Object>> toolResults = new ArrayList<>();
+        List<List<Object>> toolResultContainers = new ArrayList<>();
+        List<Integer> toolResultIndexes = new ArrayList<>();
         for (ChatMessage message : messages) {
             if (!"user".equals(message.role()) || !(message.content() instanceof List<?> parts)) {
                 continue;
             }
-            for (Object part : parts) {
+            for (int i = 0; i < parts.size(); i++) {
+                Object part = parts.get(i);
                 if (part instanceof Map<?, ?> raw) {
                     Object type = raw.get("type");
                     if ("tool_result".equals(type)) {
                         @SuppressWarnings("unchecked")
-                        Map<String, Object> typed = (Map<String, Object>) part;
-                        toolResults.add(typed);
+                        List<Object> typedParts = (List<Object>) parts;
+                        toolResultContainers.add(typedParts);
+                        toolResultIndexes.add(i);
                     }
                 }
             }
         }
-        if (toolResults.size() <= keepRecent) {
+        if (toolResultIndexes.size() <= keepRecent) {
             return;
         }
-        for (int i = 0; i < toolResults.size() - keepRecent; i++) {
-            Map<String, Object> result = toolResults.get(i);
+        for (int i = 0; i < toolResultIndexes.size() - keepRecent; i++) {
+            List<Object> parts = toolResultContainers.get(i);
+            int index = toolResultIndexes.get(i);
+            if (!(parts.get(index) instanceof Map<?, ?> rawResult)) {
+                continue;
+            }
+            @SuppressWarnings("unchecked")
+            Map<String, Object> result = (Map<String, Object>) rawResult;
             Object content = result.get("content");
             if (content instanceof String text && text.length() > 100) {
-                result.put("content", "[cleared]");
+                Map<String, Object> mutableResult = new HashMap<>(result);
+                mutableResult.put("content", "[cleared]");
+                parts.set(index, mutableResult);
             }
         }
     }
