@@ -99,6 +99,10 @@ public class TeammateManager {
         saveConfig(config);
         // 每个队友都运行在独立守护线程中，主 lead 只负责创建与协调，不直接串行执行队友任务。
         Thread thread = new Thread(() -> loop(name, role, prompt, autonomous));
+        // TeammateManager 使用守护线程的原因：
+        // 队友线程是辅助性的：用于处理 Agent 间的消息传递，不是核心业务
+        // 避免阻塞 JVM 退出：如果主程序要关闭，不需要等待队友线程处理完所有消息
+        // 防止资源泄露：如果队友线程是非守护的，可能导致 JVM 无法正常关闭
         thread.setDaemon(true);
         thread.start();
         return "Spawned '" + name + "' (role: " + role + ")";
