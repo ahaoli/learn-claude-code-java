@@ -60,12 +60,45 @@ public record StageConfig(
         // - read_file：查看代码
         // - write_file：新建或覆盖文件
         // - edit_file：对已有文件做精确替换
-        // 从 Agent 视角看，这些工具就是它的“手脚”。
+        // 从 Agent 视角看，这些工具就是它的"手脚"。
         List<Map<String, Object>> tools = new ArrayList<>();
-        tools.add(tool("bash", "Run a shell command.", Map.of("type", "object", "properties", Map.of("command", Map.of("type", "string")), "required", List.of("command"))));
-        tools.add(tool("read_file", "Read file contents.", Map.of("type", "object", "properties", Map.of("path", Map.of("type", "string"), "limit", Map.of("type", "integer")), "required", List.of("path"))));
-        tools.add(tool("write_file", "Write content to file.", Map.of("type", "object", "properties", Map.of("path", Map.of("type", "string"), "content", Map.of("type", "string")), "required", List.of("path", "content"))));
-        tools.add(tool("edit_file", "Replace exact text in file.", Map.of("type", "object", "properties", Map.of("path", Map.of("type", "string"), "old_text", Map.of("type", "string"), "new_text", Map.of("type", "string")), "required", List.of("path", "old_text", "new_text"))));
+
+        tools.add(tool("bash", "Run a shell command.", Map.of(
+                "type", "object",
+                "properties", Map.of(
+                        "command", Map.of("type", "string")
+                ),
+                "required", List.of("command")
+        )));
+
+        tools.add(tool("read_file", "Read file contents.", Map.of(
+                "type", "object",
+                "properties", Map.of(
+                        "path", Map.of("type", "string"),
+                        "limit", Map.of("type", "integer")
+                ),
+                "required", List.of("path")
+        )));
+
+        tools.add(tool("write_file", "Write content to file.", Map.of(
+                "type", "object",
+                "properties", Map.of(
+                        "path", Map.of("type", "string"),
+                        "content", Map.of("type", "string")
+                ),
+                "required", List.of("path", "content")
+        )));
+
+        tools.add(tool("edit_file", "Replace exact text in file.", Map.of(
+                "type", "object",
+                "properties", Map.of(
+                        "path", Map.of("type", "string"),
+                        "old_text", Map.of("type", "string"),
+                        "new_text", Map.of("type", "string")
+                ),
+                "required", List.of("path", "old_text", "new_text")
+        )));
+
         return tools;
     }
 
@@ -100,8 +133,14 @@ public record StageConfig(
      */
     public static StageConfig s03() {
         List<Map<String, Object>> tools = new ArrayList<>(baseTools());
-        // s03 引入 todo，帮助模型把“长任务”拆成多个可跟踪步骤。
-        tools.add(tool("todo", "Update task list. Track progress on multi-step tasks.", Map.of("type", "object", "properties", Map.of("items", Map.of("type", "array", "items", Map.of("type", "object"))), "required", List.of("items"))));
+        // s03 引入 todo，帮助模型把"长任务"拆成多个可跟踪步骤。
+        tools.add(tool("todo", "Update task list. Track progress on multi-step tasks.", Map.of(
+                "type", "object",
+                "properties", Map.of(
+                        "items", Map.of("type", "array", "items", Map.of("type", "object"))
+                ),
+                "required", List.of("items")
+        )));
         return new StageConfig("s03", true, false, false, false, false, false,
                 tools,
                 "You are a coding agent at ${WORKDIR}. Use the todo tool to plan multi-step tasks. Mark in_progress before starting, completed when done. Prefer tools over prose.");
@@ -115,7 +154,14 @@ public record StageConfig(
     public static StageConfig s04() {
         List<Map<String, Object>> tools = new ArrayList<>(baseTools());
         // s04 引入 subagent，体现 Claude Code 的重要思想：复杂问题可以分治。
-        tools.add(tool("task", "Spawn a subagent with fresh context.", Map.of("type", "object", "properties", Map.of("prompt", Map.of("type", "string"), "description", Map.of("type", "string")), "required", List.of("prompt"))));
+        tools.add(tool("task", "Spawn a subagent with fresh context.", Map.of(
+                "type", "object",
+                "properties", Map.of(
+                        "prompt", Map.of("type", "string"),
+                        "description", Map.of("type", "string")
+                ),
+                "required", List.of("prompt")
+        )));
         return new StageConfig("s04", false, false, false, false, false, false,
                 tools,
                 "You are a coding agent at ${WORKDIR}. Use the task tool to delegate exploration or subtasks.");
@@ -128,7 +174,13 @@ public record StageConfig(
      */
     public static StageConfig s05() {
         List<Map<String, Object>> tools = new ArrayList<>(baseTools());
-        tools.add(tool("load_skill", "Load specialized knowledge by name.", Map.of("type", "object", "properties", Map.of("name", Map.of("type", "string")), "required", List.of("name"))));
+        tools.add(tool("load_skill", "Load specialized knowledge by name.", Map.of(
+                "type", "object",
+                "properties", Map.of(
+                        "name", Map.of("type", "string")
+                ),
+                "required", List.of("name")
+        )));
         return new StageConfig("s05", false, false, false, false, false, false,
                 tools,
                 "You are a coding agent at ${WORKDIR}. Use load_skill to access specialized knowledge before unfamiliar work.\n\nSkills available:\n${SKILLS}");
@@ -142,7 +194,12 @@ public record StageConfig(
     public static StageConfig s06() {
         List<Map<String, Object>> tools = new ArrayList<>(baseTools());
         // s06 解决上下文窗口问题：对话太长时，Agent 需要学会压缩历史而不是无限堆积。
-        tools.add(tool("compact", "Trigger manual conversation compression.", Map.of("type", "object", "properties", Map.of("focus", Map.of("type", "string")))));
+        tools.add(tool("compact", "Trigger manual conversation compression.", Map.of(
+                "type", "object",
+                "properties", Map.of(
+                        "focus", Map.of("type", "string")
+                )
+        )));
         return new StageConfig("s06", false, true, false, false, false, false,
                 tools,
                 "You are a coding agent at ${WORKDIR}. Use tools to solve tasks.");
@@ -155,10 +212,35 @@ public record StageConfig(
      */
     public static StageConfig s07() {
         List<Map<String, Object>> tools = new ArrayList<>(baseTools());
-        tools.add(tool("task_create", "Create a new task.", Map.of("type", "object", "properties", Map.of("subject", Map.of("type", "string"), "description", Map.of("type", "string")), "required", List.of("subject"))));
-        tools.add(tool("task_update", "Update task status or dependencies.", Map.of("type", "object", "properties", Map.of("task_id", Map.of("type", "integer"), "status", Map.of("type", "string"), "addBlockedBy", Map.of("type", "array"), "addBlocks", Map.of("type", "array")), "required", List.of("task_id"))));
-        tools.add(tool("task_list", "List all tasks.", Map.of("type", "object", "properties", Map.of())));
-        tools.add(tool("task_get", "Get task details.", Map.of("type", "object", "properties", Map.of("task_id", Map.of("type", "integer")), "required", List.of("task_id"))));
+        tools.add(tool("task_create", "Create a new task.", Map.of(
+                "type", "object",
+                "properties", Map.of(
+                        "subject", Map.of("type", "string"),
+                        "description", Map.of("type", "string")
+                ),
+                "required", List.of("subject")
+        )));
+        tools.add(tool("task_update", "Update task status or dependencies.", Map.of(
+                "type", "object",
+                "properties", Map.of(
+                        "task_id", Map.of("type", "integer"),
+                        "status", Map.of("type", "string"),
+                        "addBlockedBy", Map.of("type", "array"),
+                        "addBlocks", Map.of("type", "array")
+                ),
+                "required", List.of("task_id")
+        )));
+        tools.add(tool("task_list", "List all tasks.", Map.of(
+                "type", "object",
+                "properties", Map.of()
+        )));
+        tools.add(tool("task_get", "Get task details.", Map.of(
+                "type", "object",
+                "properties", Map.of(
+                        "task_id", Map.of("type", "integer")
+                ),
+                "required", List.of("task_id")
+        )));
         return new StageConfig("s07", false, false, false, false, false, false,
                 tools,
                 "You are a coding agent at ${WORKDIR}. Use task tools to plan and track work.");
@@ -171,8 +253,20 @@ public record StageConfig(
      */
     public static StageConfig s08() {
         List<Map<String, Object>> tools = new ArrayList<>(baseTools());
-        tools.add(tool("background_run", "Run command in background thread.", Map.of("type", "object", "properties", Map.of("command", Map.of("type", "string"), "timeout", Map.of("type", "integer")), "required", List.of("command"))));
-        tools.add(tool("check_background", "Check background task status.", Map.of("type", "object", "properties", Map.of("task_id", Map.of("type", "string")))));
+        tools.add(tool("background_run", "Run command in background thread.", Map.of(
+                "type", "object",
+                "properties", Map.of(
+                        "command", Map.of("type", "string"),
+                        "timeout", Map.of("type", "integer")
+                ),
+                "required", List.of("command")
+        )));
+        tools.add(tool("check_background", "Check background task status.", Map.of(
+                "type", "object",
+                "properties", Map.of(
+                        "task_id", Map.of("type", "string")
+                )
+        )));
         return new StageConfig("s08", false, false, true, false, false, false,
                 tools,
                 "You are a coding agent at ${WORKDIR}. Use background_run for long-running commands.");
@@ -185,12 +279,40 @@ public record StageConfig(
      */
     public static StageConfig s09() {
         List<Map<String, Object>> tools = new ArrayList<>(baseTools());
-        // s09 开始进入“多 Agent 协作”，lead 不再独自完成全部工作，而是能创建队友。
-        tools.add(tool("spawn_teammate", "Spawn a persistent teammate.", Map.of("type", "object", "properties", Map.of("name", Map.of("type", "string"), "role", Map.of("type", "string"), "prompt", Map.of("type", "string")), "required", List.of("name", "role", "prompt"))));
-        tools.add(tool("list_teammates", "List all teammates.", Map.of("type", "object", "properties", Map.of())));
-        tools.add(tool("send_message", "Send a message to a teammate.", Map.of("type", "object", "properties", Map.of("to", Map.of("type", "string"), "content", Map.of("type", "string"), "msg_type", Map.of("type", "string")), "required", List.of("to", "content"))));
-        tools.add(tool("read_inbox", "Read and drain the lead inbox.", Map.of("type", "object", "properties", Map.of())));
-        tools.add(tool("broadcast", "Send message to all teammates.", Map.of("type", "object", "properties", Map.of("content", Map.of("type", "string")), "required", List.of("content"))));
+        // s09 开始进入"多 Agent 协作"，lead 不再独自完成全部工作，而是能创建队友。
+        tools.add(tool("spawn_teammate", "Spawn a persistent teammate.", Map.of(
+                "type", "object",
+                "properties", Map.of(
+                        "name", Map.of("type", "string"),
+                        "role", Map.of("type", "string"),
+                        "prompt", Map.of("type", "string")
+                ),
+                "required", List.of("name", "role", "prompt")
+        )));
+        tools.add(tool("list_teammates", "List all teammates.", Map.of(
+                "type", "object",
+                "properties", Map.of()
+        )));
+        tools.add(tool("send_message", "Send a message to a teammate.", Map.of(
+                "type", "object",
+                "properties", Map.of(
+                        "to", Map.of("type", "string"),
+                        "content", Map.of("type", "string"),
+                        "msg_type", Map.of("type", "string")
+                ),
+                "required", List.of("to", "content")
+        )));
+        tools.add(tool("read_inbox", "Read and drain the lead inbox.", Map.of(
+                "type", "object",
+                "properties", Map.of()
+        )));
+        tools.add(tool("broadcast", "Send message to all teammates.", Map.of(
+                "type", "object",
+                "properties", Map.of(
+                        "content", Map.of("type", "string")
+                ),
+                "required", List.of("content")
+        )));
         return new StageConfig("s09", false, false, false, true, false, false,
                 tools,
                 "You are a team lead at ${WORKDIR}. Spawn teammates and communicate via inboxes.");
@@ -203,8 +325,22 @@ public record StageConfig(
      */
     public static StageConfig s10() {
         List<Map<String, Object>> tools = new ArrayList<>(s09().tools());
-        tools.add(tool("shutdown_request", "Request teammate shutdown.", Map.of("type", "object", "properties", Map.of("teammate", Map.of("type", "string")), "required", List.of("teammate"))));
-        tools.add(tool("plan_approval", "Approve or reject a teammate plan.", Map.of("type", "object", "properties", Map.of("request_id", Map.of("type", "string"), "approve", Map.of("type", "boolean"), "feedback", Map.of("type", "string")), "required", List.of("request_id", "approve"))));
+        tools.add(tool("shutdown_request", "Request teammate shutdown.", Map.of(
+                "type", "object",
+                "properties", Map.of(
+                        "teammate", Map.of("type", "string")
+                ),
+                "required", List.of("teammate")
+        )));
+        tools.add(tool("plan_approval", "Approve or reject a teammate plan.", Map.of(
+                "type", "object",
+                "properties", Map.of(
+                        "request_id", Map.of("type", "string"),
+                        "approve", Map.of("type", "boolean"),
+                        "feedback", Map.of("type", "string")
+                ),
+                "required", List.of("request_id", "approve")
+        )));
         return new StageConfig("s10", false, false, false, true, false, false,
                 tools,
                 "You are a team lead at ${WORKDIR}. Manage teammates with shutdown and plan approval protocols.");
@@ -218,8 +354,17 @@ public record StageConfig(
     public static StageConfig s11() {
         List<Map<String, Object>> tools = new ArrayList<>(s10().tools());
         // s11 进一步让队友具备自治能力：它们可以在空闲时主动认领任务，而不是一直等 lead 分配。
-        tools.add(tool("claim_task", "Claim a task from the board.", Map.of("type", "object", "properties", Map.of("task_id", Map.of("type", "integer")), "required", List.of("task_id"))));
-        tools.add(tool("idle", "Enter idle state.", Map.of("type", "object", "properties", Map.of())));
+        tools.add(tool("claim_task", "Claim a task from the board.", Map.of(
+                "type", "object",
+                "properties", Map.of(
+                        "task_id", Map.of("type", "integer")
+                ),
+                "required", List.of("task_id")
+        )));
+        tools.add(tool("idle", "Enter idle state.", Map.of(
+                "type", "object",
+                "properties", Map.of()
+        )));
         tools.addAll(List.of(s07().tools().get(4), s07().tools().get(5), s07().tools().get(6), s07().tools().get(7)));
         return new StageConfig("s11", false, false, false, true, false, true,
                 dedupe(tools),
@@ -234,10 +379,32 @@ public record StageConfig(
     public static StageConfig s12() {
         List<Map<String, Object>> tools = new ArrayList<>(s11().tools());
         // s12 引入 worktree lane 概念，用于把不同任务分到不同目录隔离执行，减少上下文和文件冲突。
-        tools.add(tool("worktree_create", "Create a task-bound worktree lane.", Map.of("type", "object", "properties", Map.of("name", Map.of("type", "string"), "task_id", Map.of("type", "integer")), "required", List.of("name", "task_id"))));
-        tools.add(tool("worktree_list", "List all worktrees.", Map.of("type", "object", "properties", Map.of())));
-        tools.add(tool("worktree_remove", "Remove a worktree.", Map.of("type", "object", "properties", Map.of("name", Map.of("type", "string"), "keep", Map.of("type", "boolean")), "required", List.of("name"))));
-        tools.add(tool("worktree_events", "List recent worktree lifecycle events.", Map.of("type", "object", "properties", Map.of("limit", Map.of("type", "integer")))));
+        tools.add(tool("worktree_create", "Create a task-bound worktree lane.", Map.of(
+                "type", "object",
+                "properties", Map.of(
+                        "name", Map.of("type", "string"),
+                        "task_id", Map.of("type", "integer")
+                ),
+                "required", List.of("name", "task_id")
+        )));
+        tools.add(tool("worktree_list", "List all worktrees.", Map.of(
+                "type", "object",
+                "properties", Map.of()
+        )));
+        tools.add(tool("worktree_remove", "Remove a worktree.", Map.of(
+                "type", "object",
+                "properties", Map.of(
+                        "name", Map.of("type", "string"),
+                        "keep", Map.of("type", "boolean")
+                ),
+                "required", List.of("name")
+        )));
+        tools.add(tool("worktree_events", "List recent worktree lifecycle events.", Map.of(
+                "type", "object",
+                "properties", Map.of(
+                        "limit", Map.of("type", "integer")
+                )
+        )));
         return new StageConfig("s12", false, false, false, true, false, true,
                 dedupe(tools),
                 "You are a coding agent at ${WORKDIR}. Use task + worktree tools for multi-task work. Use worktree_events when you need lifecycle visibility.");
