@@ -32,19 +32,19 @@ graph TB
 
     subgraph "配置层"
         SC[StageConfig] --> RT
-        SC --> S01[stage.s01()]
-        SC --> S02[stage.s02()]
-        SC --> S03[stage.s03()]
-        SC --> S04[stage.s04()]
-        SC --> S05[stage.s05()]
-        SC --> S06[stage.s06()]
-        SC --> S07[stage.s07()]
-        SC --> S08[stage.s08()]
-        SC --> S09[stage.s09()]
-        SC --> S10[stage.s10()]
-        SC --> S11[stage.s11()]
-        SC --> S12[stage.s12()]
-        SC --> SF[stage.sFull()]
+        SC --> S01[stage.s01]
+        SC --> S02[stage.s02]
+        SC --> S03[stage.s03]
+        SC --> S04[stage.s04]
+        SC --> S05[stage.s05]
+        SC --> S06[stage.s06]
+        SC --> S07[stage.s07]
+        SC --> S08[stage.s08]
+        SC --> S09[stage.s09]
+        SC --> S10[stage.s10]
+        SC --> S11[stage.s11]
+        SC --> S12[stage.s12]
+        SC --> SF[stage.sFull]
     end
 
     subgraph "工具层"
@@ -176,14 +176,14 @@ graph LR
     M7 --> M8
     M8 --> M9
 
-    M2 -->|bash| C1[CommandTools.runBash()]
-    M2 -->|read_file| C2[CommandTools.runRead()]
-    M2 -->|write_file| C3[CommandTools.runWrite()]
-    M2 -->|edit_file| C4[CommandTools.runEdit()]
-    M2 -->|todo| C5[TodoManager.update()]
-    M2 -->|task| C6[runSubagent()]
-    M2 -->|background_run| C7[BackgroundManager.run()]
-    M2 -->|send_message| C8[MessageBus.send()]
+    M2 -->|bash| C1[CommandTools.runBash]
+    M2 -->|read_file| C2[CommandTools.runRead]
+    M2 -->|write_file| C3[CommandTools.runWrite]
+    M2 -->|edit_file| C4[CommandTools.runEdit]
+    M2 -->|todo| C5[TodoManager.update]
+    M2 -->|task| C6[runSubagent]
+    M2 -->|background_run| C7[BackgroundManager.run]
+    M2 -->|send_message| C8[MessageBus.send]
 ```
 
 ### 5. 上下文压缩流程
@@ -263,12 +263,12 @@ graph TB
         TA -->|处理消息| TA
         TA -->|执行工具| Tools
         TA -->|自动认领任务| TaskManager
-        TA -->|保持心跳| Status Check
+        TA -->|状态更新| StatusUpdate
     end
 
     subgraph "消息总线"
-        MB -->|保存到JSONL| File System
-        MB -->|读即消费| Message Reading
+        MB -->|保存到JSONL| FileSystem
+        MB -->|读即消费| MessageReading
     end
 
     subgraph "任务系统"
@@ -340,8 +340,8 @@ graph TD
     C -->|是| D[扫描SKILL.md文件]
 
     D --> E[逐个读取文件]
-    E --> F[解析frontmatter]
-    F --> G[提取元数据和正文]
+    E --> F2[解析frontmatter]
+    F2 --> G[提取元数据和正文]
     G --> H[存储到内存缓存]
     H --> I{是否成功加载所有技能?}
 
@@ -352,12 +352,13 @@ graph TD
     style J fill:#99ff99,stroke:#333,stroke-width:2px
 
     subgraph "文件格式"
-        F1[---\nname: 技能名\ndescription: 描述\n---\n技能正文]
+        F1["---\nname: 技能名\ndescription: 描述\n---\n技能正文"]
     end
 
     subgraph "缓存结构"
-        C1["技能名": {\n  "meta": {"name": "...", "description": "..."},\n  "body": "技能内容",\n  "path": "文件路径"\n}]
+        C1["技能对象: {meta: {name, description}, body: 内容, path: 路径}"]
     end
+
 ```
 
 ### 10. 背景任务流程
