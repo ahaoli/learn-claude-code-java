@@ -47,7 +47,7 @@ public class WorktreeManager {
     }
 
     /**
-     * 创建并绑定一个新的 worktree 车道。
+     * 创建并绑定一个新的 worktree lane。
      *
      * @param name worktree 名称
      * @param taskId 关联任务 ID
@@ -60,7 +60,7 @@ public class WorktreeManager {
         } catch (IOException e) {
             return "Error: " + e.getMessage();
         }
-        // 当前实现用独立目录模拟 worktree 车道，并把它与任务 ID 绑定。
+        // 当前实现用独立目录模拟 worktree lane，并把它与任务 ID 绑定。
         Map<String, Object> item = new HashMap<>();
         item.put("name", name);
         item.put("path", worktreePath.toString());
@@ -70,6 +70,7 @@ public class WorktreeManager {
         List<Map<String, Object>> items = worktrees();
         items.add(item);
         saveIndex(items);
+        // task -> worktree name -> items(indexPath)
         taskManager.bindWorktree(taskId, name, "");
         emit("worktree_created", taskId, item, null);
         return JsonUtils.toPrettyJson(item);

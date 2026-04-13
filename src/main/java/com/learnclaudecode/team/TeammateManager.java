@@ -152,6 +152,10 @@ public class TeammateManager {
 
     /**
      * 处理队友提交的计划审批请求。
+     *   这是一种层级控制机制，确保：
+     *     重要的决策需要主代理审核
+     *     避免队友执行可能有害的操作
+     *     实现团队协作中的监督和协调
      *
      * @param requestId 请求 ID
      * @param approve 是否批准
@@ -180,6 +184,7 @@ public class TeammateManager {
      */
     private void loop(String name, String role, String prompt, boolean autonomous) {
         String teamName = String.valueOf(loadConfig().getOrDefault("team_name", "default"));
+        // autonomous 模式下，队友会自动申领任务。
         String system = autonomous
                 ? "You are '" + name + "', role: " + role + ", team: " + teamName + ", at " + paths.workdir() + ". Use idle when done. You may auto-claim tasks."
                 : "You are '" + name + "', role: " + role + ", at " + paths.workdir() + ". Use send_message to communicate. Complete your task.";
@@ -189,7 +194,11 @@ public class TeammateManager {
         while (true) {
             // 队友循环先消费 inbox，再调用模型，和主代理的“消息 -> 推理 -> 工具执行”节奏一致。
             for (Map<String, Object> inboxMessage : bus.readInbox(name)) {
+                // lead 发送了 shutdown 请求
                 if ("shutdown_request".equals(inboxMessage.get("type"))) {
+                    // 为什么只有 autonomous 模式下才处理 shutdown 请求？
+                    // 非自治队友会在任务执行完成后退出
+                    // 自治队友在完成当前任务后不会立刻退出，而是先进入 idle，再尝试自动接单。
                     if (autonomous) {
                         setStatus(name, "shutdown");
                         return;
@@ -232,6 +241,7 @@ public class TeammateManager {
                     case "edit_file" -> output = commandTools.runEdit(String.valueOf(input.get("path")), String.valueOf(input.get("old_text")), String.valueOf(input.get("new_text")));
                     case "send_message" -> output = bus.send(name, String.valueOf(input.get("to")), String.valueOf(input.get("content")), String.valueOf(input.getOrDefault("msg_type", "message")), Map.of());
                     case "read_inbox" -> output = JsonUtils.toPrettyJson(bus.readInbox(name));
+                    // 申领任务
                     case "claim_task" -> output = taskManager.claim(((Number) input.get("task_id")).intValue(), name);
                     case "idle" -> {
                         output = "Entering idle phase.";
@@ -288,6 +298,7 @@ public class TeammateManager {
         tools.add(tool("send_message", "Send message to a teammate.", Map.of("type", "object", "properties", Map.of("to", Map.of("type", "string"), "content", Map.of("type", "string"), "msg_type", Map.of("type", "string")), "required", List.of("to", "content"))));
         tools.add(tool("read_inbox", "Read and drain your inbox.", Map.of("type", "object", "properties", Map.of())));
         if (autonomous) {
+            // 自治模式下, 可以自动申领任务, 以及进入 Idle 模式。(可以从 Idle 中自动恢复)
             tools.add(tool("claim_task", "Claim a task by ID.", Map.of("type", "object", "properties", Map.of("task_id", Map.of("type", "integer")), "required", List.of("task_id"))));
             tools.add(tool("idle", "Signal no more work for now.", Map.of("type", "object", "properties", Map.of())));
         } else {
