@@ -228,6 +228,10 @@ public class MarkdownJsonExtractor {
         run("场景8 - 多个块，取最后一个",
                 "first: ```json\n{\"order\":1}\n```\nsecond: ```json\n{\"order\":2}\n```");
 
+
+        run("场景9 - 多层嵌套（递归提取最内层）",
+                "result: ```json\n```json {\"a\":1, \"b\":\"hello\"} ```\n``` done");
+
         System.out.println("=== 场景8 - 所有块列表 ===");
         List<String> all = extractAllJsonBlocks(
                 "first: ```json\n{\"order\":1}\n```\n 这是一个`测试 second: ```json\n{\"order\":2}\n```");
