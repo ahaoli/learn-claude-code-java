@@ -118,15 +118,22 @@ public class MarkdownJsonExtractor {
                     int closeInContent = afterLangStartInContent + closeInAfterLang;
                     i = closeInContent + 3;
                 } else {
-                    // 同行没找到结束 ```，退化为多行模式
-                    int multilineStart = hasNewline ? lineEnd + 1 : n;
-                    int closeTriple = findClosingTriple(content, multilineStart);
-                    if (closeTriple == -1) {
-                        i = n; // 未闭合，跳过
-                        continue;
+                    // 同行没找到结束 ```：
+                    // - 若后续无换行，按“无闭合的行内内容”处理，直接取 afterLang
+                    // - 若后续有换行，退化为多行模式继续向后找结束 ```
+                    if (!hasNewline) {
+                        blockContent = afterLang.trim();
+                        i = n;
+                    } else {
+                        int multilineStart = lineEnd + 1;
+                        int closeTriple = findClosingTriple(content, multilineStart);
+                        if (closeTriple == -1) {
+                            i = n; // 未闭合，跳过
+                            continue;
+                        }
+                        blockContent = (afterLang + "\n" + content.substring(multilineStart, closeTriple)).trim();
+                        i = closeTriple + 3;
                     }
-                    blockContent = (afterLang + "\n" + content.substring(multilineStart, closeTriple)).trim();
-                    i = closeTriple + 3;
                 }
             } else {
                 // ===== 多行格式：```json\nCONTENT\n``` =====
