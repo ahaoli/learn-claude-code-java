@@ -4,199 +4,237 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 从任意文本中提取 ```json ... ``` 代码块内容。
+ * 从任意文本中提取 Markdown fenced json 代码块。
  *
- * <p>支持以下全部场景：
- * <ol>
- *   <li>单行格式：{@code ```json {"a":1} ```}</li>
- *   <li>标准多行格式</li>
- *   <li>多层嵌套（块内部出现 ```json ... ``` 字符串，递归提取最内层）</li>
- *   <li>JSON 块嵌在一行文字中间，如：{@code 哈哈 ```json {"a":1} ``` hhh}</li>
- *   <li>两个独立 JSON 块之间有行内反引号（原始 Bug 场景）</li>
- *   <li>语言标记大小写不敏感（json / JSON / Json）</li>
- * </ol>
- *
- * <p>核心策略：
+ * <p>设计目标：
  * <ul>
- *   <li>找到 {@code ```json} 后，读取语言标记同行剩余内容：
- *       若同行有内容 → 单行模式，在同行找结束 {@code ```}；
- *       否则 → 多行模式，向后找"后缀只有空白"的 {@code ```}。</li>
- *   <li>结束 {@code ```} 判定：其后到行尾只有空白，不要求必须在行首
- *       （从而支持场景4）。</li>
+ *   <li>extractMarkdownJson：提取“最后一个 json 块”的内容（最常见的 LLM tool output 场景）。</li>
+ *   <li>extractAllJsonBlocks：提取全部 json 块内容（按出现顺序）。</li>
+ *   <li>支持单行/多行/行内前后缀文字/大小写 JSON 标签。</li>
+ *   <li>支持嵌套：通过“先拿最后一个块，再在块内继续找最后一个块”实现递归下钻到最内层。</li>
  * </ul>
  */
 public class MarkdownJsonExtractor {
 
-    // ═══════════════════════════════════════════════════════════════
-    // 公共 API
-    // ═══════════════════════════════════════════════════════════════
+    private static final String FENCE = "```";
 
     /**
      * 提取文本中最后一个 {@code ```json ... ```} 块的最内层内容（去首尾空白）。
      * 若不含任何合法块，返回空字符串。
-     *
-     * <p>嵌套时递归向内钻取，直到不再包含 {@code ```json} 块为止。
      */
     public static String extractMarkdownJson(String content) {
         if (content == null || content.isEmpty()) {
             return content;
         }
-        String result = extractInnermostJson(content);
-        return result != null ? result : "";
-    }
 
-    /** 递归提取最内层 ```json 块的内容。若无任何块返回 null。 */
-    private static String extractInnermostJson(String content) {
-        List<String> blocks = extractAllJsonBlocks(content);
-        if (blocks.isEmpty()) {
-            return null;
+        String current = content;
+        String lastFound = null;
+
+        // 持续在“当前文本”里提取最后一个 json 块，直到不能再下钻。
+        while (true) {
+            String next = extractLastJsonBlockOnce(current);
+            if (next == null) {
+                break;
+            }
+            lastFound = next;
+            current = next;
         }
-        String lastBlock = blocks.get(blocks.size() - 1);
-        String inner = extractInnermostJson(lastBlock);
-        return inner != null ? inner : lastBlock;
+
+        return lastFound == null ? "" : lastFound;
     }
 
     /**
-     * 提取文本中所有 {@code ```json ... ```} 块的内容列表（按出现顺序）。
+     * 提取文本中所有 {@code ```json ... ```} 块内容（按出现顺序）。
      */
     public static List<String> extractAllJsonBlocks(String content) {
-        List<String> result = new ArrayList<>();
+        List<String> blocks = new ArrayList<>();
         if (content == null || content.isEmpty()) {
-            return result;
+            return blocks;
         }
 
-        final int n = content.length();
-        int i = 0;
-
-        while (i < n) {
-            // ── 步骤1：找下一个 ``` ──────────────────────────────────
-            int triplePos = content.indexOf("```", i);
-            if (triplePos == -1) break;
-
-            // ── 步骤2：读取语言标记及同行剩余内容 ────────────────────
-            int afterTriple = triplePos + 3;
-            int lineEnd = content.indexOf('\n', afterTriple); // 本行 \n 位置，-1 表示末行
-            boolean hasNewline = (lineEnd != -1);
-            // restOfLine：语言标记 + 同行内容（不含 \n）
-            String restOfLine = hasNewline
-                    ? content.substring(afterTriple, lineEnd)
-                    : content.substring(afterTriple);
-
-            // 拆分语言标记与其后内容
-            // restOfLine 示例：
-            //   "json"              → lang="json", afterLang=""
-            //   "json {"a":1} ```" → lang="json", afterLang={"a":1} ```
-            //   "JSON"             → lang="JSON", afterLang=""
-            int spaceIdx = indexOfWhitespace(restOfLine);
-            String lang;
-            String afterLang; // 语言标记之后、同行的剩余文本（已 trim）
-            if (spaceIdx == -1) {
-                lang = restOfLine.trim();
-                afterLang = "";
-            } else {
-                lang = restOfLine.substring(0, spaceIdx).trim();
-                afterLang = restOfLine.substring(spaceIdx).trim();
+        int scanFrom = 0;
+        while (true) {
+            int openPos = findNextJsonFence(content, scanFrom);
+            if (openPos == -1) {
+                break;
             }
 
-            if (!lang.equalsIgnoreCase("json")) {
-                i = triplePos + 3;
+            ParsedBlock parsed = parseJsonBlockAt(content, openPos);
+            if (parsed == null) {
+                // 防止死循环：至少向后推进 3 个字符
+                scanFrom = openPos + FENCE.length();
                 continue;
             }
 
-            // ── 步骤3：区分单行 vs 多行 ──────────────────────────────
-            String blockContent;
-
-            if (!afterLang.isEmpty()) {
-                // ===== 单行 / 行内格式：```json CONTENT ``` hhh =====
-                // 在 afterLang 中找结束 ```
-                int closeInAfterLang = afterLang.indexOf("```");
-                if (closeInAfterLang != -1) {
-                    blockContent = afterLang.substring(0, closeInAfterLang).trim();
-                    // 定位原串中结束 ``` 的位置，以便继续扫描
-                    // 从 afterTriple 开始，在原串里找到 afterLang 对应的起点
-                    int afterLangStartInContent = content.indexOf(afterLang, afterTriple);
-                    int closeInContent = afterLangStartInContent + closeInAfterLang;
-                    i = closeInContent + 3;
-                } else {
-                    // 同行没找到结束 ```，退化为多行模式
-                    int multilineStart = hasNewline ? lineEnd + 1 : n;
-                    int closeTriple = findClosingTriple(content, multilineStart);
-                    if (closeTriple == -1) {
-                        i = n; // 未闭合，跳过
-                        continue;
-                    }
-                    blockContent = (afterLang + "\n" + content.substring(multilineStart, closeTriple)).trim();
-                    i = closeTriple + 3;
-                }
-            } else {
-                // ===== 多行格式：```json\nCONTENT\n``` =====
-                int blockStart = hasNewline ? lineEnd + 1 : n;
-                int closeTriple = findClosingTriple(content, blockStart);
-                if (closeTriple == -1) {
-                    i = n; // 未闭合，跳过
-                    continue;
-                }
-                blockContent = content.substring(blockStart, closeTriple).trim();
-                i = closeTriple + 3;
+            if (!parsed.content.isEmpty()) {
+                blocks.add(parsed.content);
             }
-
-            if (!blockContent.isEmpty()) {
-                result.add(blockContent);
-            }
+            scanFrom = parsed.nextScanIndex;
         }
 
-        return result;
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    // 内部辅助
-    // ═══════════════════════════════════════════════════════════════
-
-    /** 返回字符串中第一个空白字符（空格/Tab）的索引，找不到返回 -1。 */
-    private static int indexOfWhitespace(String s) {
-        for (int i = 0; i < s.length(); i++) {
-            char c = s.charAt(i);
-            if (c == ' ' || c == '\t') return i;
-        }
-        return -1;
+        return blocks;
     }
 
     /**
-     * 从 fromIndex 开始，找到有效结束 {@code ```} 的位置。
+     * 在给定文本中仅提取“最后一个”json 块（不递归）。
+     */
+    private static String extractLastJsonBlockOnce(String content) {
+        int openPos = findLastJsonFence(content);
+        if (openPos == -1) {
+            return null;
+        }
+
+        ParsedBlock parsed = parseJsonBlockAt(content, openPos);
+        return parsed == null ? null : parsed.content;
+    }
+
+    /** 从 fromIndex 开始找下一个 json fence 起点。 */
+    private static int findNextJsonFence(String content, int fromIndex) {
+        int i = Math.max(0, fromIndex);
+        while (true) {
+            int fencePos = content.indexOf(FENCE, i);
+            if (fencePos == -1) {
+                return -1;
+            }
+            if (isJsonFence(content, fencePos)) {
+                return fencePos;
+            }
+            i = fencePos + FENCE.length();
+        }
+    }
+
+    /** 找最后一个 json fence 起点。 */
+    private static int findLastJsonFence(String content) {
+        int last = -1;
+        int from = 0;
+        while (true) {
+            int next = findNextJsonFence(content, from);
+            if (next == -1) {
+                break;
+            }
+            last = next;
+            from = next + FENCE.length();
+        }
+        return last;
+    }
+
+    /** 判断 fencePos 是否是 ```json（大小写不敏感）起点。 */
+    private static boolean isJsonFence(String content, int fencePos) {
+        int afterFence = fencePos + FENCE.length();
+        int lineEnd = findLineEnd(content, afterFence);
+        String rest = content.substring(afterFence, lineEnd);
+
+        int ws = indexOfWhitespace(rest);
+        String lang = ws == -1 ? rest.trim() : rest.substring(0, ws).trim();
+        return lang.equalsIgnoreCase("json");
+    }
+
+    /**
+     * 从指定的 json fence 起点解析块内容。
      *
-     * <p>有效规则：{@code ```} 之后到行尾（或字符串尾）只有空白字符。
-     * 不要求必须在行首，从而同时支持多行格式和行内格式。
+     * <p>规则：
+     * <ul>
+     *   <li>若语言标记同行后还有内容（afterLang 非空），先尝试同一行内找结束 ```（单行模式）。</li>
+     *   <li>若同行找不到结束 ```，则转多行模式，继续向后找“后缀仅空白”的结束 ```。</li>
+     *   <li>多行模式下，结束 fence 可在行首或行中，但 fence 后到行尾必须只有空白。</li>
+     * </ul>
      */
-    private static int findClosingTriple(String s, int fromIndex) {
-        int pos = fromIndex;
-        final int n = s.length();
-        while (pos < n) {
-            int triplePos = s.indexOf("```", pos);
-            if (triplePos == -1) return -1;
-            if (isClosingTriple(s, triplePos)) return triplePos;
-            pos = triplePos + 3;
+    private static ParsedBlock parseJsonBlockAt(String content, int openFencePos) {
+        int n = content.length();
+        int afterFence = openFencePos + FENCE.length();
+        int lineEnd = findLineEnd(content, afterFence);
+        boolean hasNewline = lineEnd < n;
+
+        String restOfLine = content.substring(afterFence, lineEnd);
+        int ws = indexOfWhitespace(restOfLine);
+        String afterLang = ws == -1 ? "" : restOfLine.substring(ws).trim();
+
+        // 单行优先：```json {...} ```
+        if (!afterLang.isEmpty()) {
+            int closeInline = afterLang.indexOf(FENCE);
+            if (closeInline != -1) {
+                String block = afterLang.substring(0, closeInline).trim();
+                int afterLangStart = content.indexOf(afterLang, afterFence);
+                int closeFencePos = afterLangStart + closeInline;
+                return new ParsedBlock(block, closeFencePos + FENCE.length());
+            }
         }
-        return -1;
+
+        // 多行模式（也覆盖“afterLang 非空但同行无闭合”的情况）
+        int blockStart = hasNewline ? lineEnd + 1 : n;
+        int closeFencePos = findClosingFence(content, blockStart);
+        if (closeFencePos == -1) {
+            // 无闭合：若是“单行无换行且 afterLang 非空”，退化返回 afterLang；否则解析失败
+            if (!hasNewline && !afterLang.isEmpty()) {
+                return new ParsedBlock(afterLang.trim(), n);
+            }
+            return null;
+        }
+
+        String multi = content.substring(blockStart, closeFencePos).trim();
+        if (!afterLang.isEmpty()) {
+            multi = (afterLang + "\n" + multi).trim();
+        }
+        return new ParsedBlock(multi, closeFencePos + FENCE.length());
     }
 
-    /**
-     * 判断 triplePos 处的 {@code ```} 是否为有效结束符。
-     * 规则：{@code ```} 之后到行尾只有空白字符。
-     */
-    private static boolean isClosingTriple(String s, int triplePos) {
-        final int n = s.length();
-        int afterTriple = triplePos + 3;
-        for (int k = afterTriple; k < n; k++) {
-            char c = s.charAt(k);
-            if (c == '\n') break;
-            if (c != ' ' && c != '\t' && c != '\r') return false;
+    /** 从 from 开始找有效结束 fence：其后到行尾仅空白。 */
+    private static int findClosingFence(String content, int from) {
+        int i = Math.max(0, from);
+        while (true) {
+            int pos = content.indexOf(FENCE, i);
+            if (pos == -1) {
+                return -1;
+            }
+            if (isClosingFence(content, pos)) {
+                return pos;
+            }
+            i = pos + FENCE.length();
+        }
+    }
+
+    /** 结束 fence 判定：``` 后到行尾只有空白。 */
+    private static boolean isClosingFence(String content, int fencePos) {
+        int i = fencePos + FENCE.length();
+        while (i < content.length()) {
+            char c = content.charAt(i);
+            if (c == '\n') {
+                return true;
+            }
+            if (c != ' ' && c != '\t' && c != '\r') {
+                return false;
+            }
+            i++;
         }
         return true;
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // 测试
-    // ═══════════════════════════════════════════════════════════════
+    /** 返回 s 从 from 开始所在行的行尾索引（不含换行符）。 */
+    private static int findLineEnd(String s, int from) {
+        int pos = s.indexOf('\n', from);
+        return pos == -1 ? s.length() : pos;
+    }
+
+    /** 返回字符串中第一个空白字符（空格/Tab）索引，找不到返回 -1。 */
+    private static int indexOfWhitespace(String s) {
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c == ' ' || c == '\t') {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private static class ParsedBlock {
+        final String content;
+        final int nextScanIndex;
+
+        ParsedBlock(String content, int nextScanIndex) {
+            this.content = content == null ? "" : content;
+            this.nextScanIndex = nextScanIndex;
+        }
+    }
 
     public static void main(String[] args) {
         run("场景1a - 单行格式（行内有前后文字）",
@@ -227,6 +265,9 @@ public class MarkdownJsonExtractor {
 
         run("场景8 - 多个块，取最后一个",
                 "first: ```json\n{\"order\":1}\n```\nsecond: ```json\n{\"order\":2}\n```");
+
+        run("场景9 - 多层嵌套（递归提取最内层）",
+                "result: ```json\n```json {\"a\":1, \"b\":\"hello\"} ```\n``` done");
 
         System.out.println("=== 场景8 - 所有块列表 ===");
         List<String> all = extractAllJsonBlocks(
