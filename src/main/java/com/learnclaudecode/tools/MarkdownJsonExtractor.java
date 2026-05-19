@@ -41,19 +41,14 @@ public class MarkdownJsonExtractor {
         if (content == null || content.isEmpty()) {
             return content;
         }
-        String result = extractInnermostJson(content);
-        return result != null ? result : "";
-    }
 
-    /** 递归提取最内层 ```json 块的内容。若无任何块返回 null。 */
-    private static String extractInnermostJson(String content) {
-        List<String> blocks = extractAllJsonBlocks(content);
-        if (blocks.isEmpty()) {
-            return null;
+        int openPos = findLastJsonFenceStart(content);
+        if (openPos == -1) {
+            return "";
         }
-        String lastBlock = blocks.get(blocks.size() - 1);
-        String inner = extractInnermostJson(lastBlock);
-        return inner != null ? inner : lastBlock;
+
+        String block = extractJsonBlockAt(content, openPos);
+        return block != null ? block : "";
     }
 
     /**
@@ -153,6 +148,72 @@ public class MarkdownJsonExtractor {
         }
 
         return result;
+    }
+
+
+    /** 找到最后一个 {@code ```json} 起点；找不到返回 -1。 */
+    private static int findLastJsonFenceStart(String content) {
+        int last = -1;
+        int i = 0;
+        while (i < content.length()) {
+            int triplePos = content.indexOf("```", i);
+            if (triplePos == -1) {
+                break;
+            }
+            int afterTriple = triplePos + 3;
+            int lineEnd = content.indexOf('\n', afterTriple);
+            String restOfLine = lineEnd == -1
+                    ? content.substring(afterTriple)
+                    : content.substring(afterTriple, lineEnd);
+            int spaceIdx = indexOfWhitespace(restOfLine);
+            String lang = (spaceIdx == -1)
+                    ? restOfLine.trim()
+                    : restOfLine.substring(0, spaceIdx).trim();
+            if (lang.equalsIgnoreCase("json")) {
+                last = triplePos;
+            }
+            i = triplePos + 3;
+        }
+        return last;
+    }
+
+    /**
+     * 从已知的 {@code ```json} 起点提取块内容。
+     * 支持单行/行内与多行两种格式，返回去首尾空白后的内容；失败返回 null。
+     */
+    private static String extractJsonBlockAt(String content, int triplePos) {
+        int afterTriple = triplePos + 3;
+        int lineEnd = content.indexOf('\n', afterTriple);
+        boolean hasNewline = lineEnd != -1;
+        String restOfLine = hasNewline
+                ? content.substring(afterTriple, lineEnd)
+                : content.substring(afterTriple);
+
+        int spaceIdx = indexOfWhitespace(restOfLine);
+        String afterLang = (spaceIdx == -1) ? "" : restOfLine.substring(spaceIdx).trim();
+
+        if (!afterLang.isEmpty()) {
+            int closeInAfterLang = afterLang.indexOf("```");
+            if (closeInAfterLang != -1) {
+                return afterLang.substring(0, closeInAfterLang).trim();
+            }
+            if (!hasNewline) {
+                return afterLang.trim();
+            }
+            int blockStart = lineEnd + 1;
+            int closeTriple = findClosingTriple(content, blockStart);
+            if (closeTriple == -1) {
+                return null;
+            }
+            return (afterLang + "\n" + content.substring(blockStart, closeTriple)).trim();
+        }
+
+        int blockStart = hasNewline ? lineEnd + 1 : content.length();
+        int closeTriple = findClosingTriple(content, blockStart);
+        if (closeTriple == -1) {
+            return null;
+        }
+        return content.substring(blockStart, closeTriple).trim();
     }
 
     // ═══════════════════════════════════════════════════════════════
